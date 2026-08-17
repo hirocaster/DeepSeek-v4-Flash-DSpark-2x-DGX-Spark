@@ -459,6 +459,11 @@ print_resolved_profile() {
   else
     echo "  DSV4 perf hotfixes (#50312/#50004/#49486/#48407/#48957/#50298/#44993-grammar): will apply on start"
   fi
+  if [ "${DSPARK_SKIP_MQ_SPIN_HOTFIX:-0}" = "1" ]; then
+    echo "  MQ spin-budget hotfix (#51950): SKIPPED (DSPARK_SKIP_MQ_SPIN_HOTFIX=1)"
+  else
+    echo "  MQ spin-budget hotfix (#51950): will apply on start (VLLM_MQ_SPIN_SECONDS=${VLLM_MQ_SPIN_SECONDS:-1}s)"
+  fi
   if [ "${DSPARK_SKIP_SUPPRESS_STOPS_HOTFIX:-0}" = "1" ]; then
     echo "  Suppress stops in <think>: SKIPPED (DSPARK_SKIP_SUPPRESS_STOPS_HOTFIX=1)"
   elif [ "${DSPARK_SUPPRESS_STOPS_IN_REASONING:-${VLLM_SUPPRESS_STOPS_IN_REASONING:-1}}" = "0" ]; then
@@ -563,7 +568,7 @@ if [ -f "$DSPARK_HOTFIX_FILE" ]; then
   scp "$DSPARK_HOTFIX_FILE" "${WORKER_HOST}:${REMOTE_WORKER_DIR}/patches/hotfix-nvfp4-ds-mla-issue22.sh"
 fi
 # DSV4 v0.27 .sh hotfixes — entrypoint applies them before exec vllm (issue #38).
-for _hf_sync in hotfix-dsv4-mtp-buffer-50312.sh hotfix-dsv4-adaptive-topk-50004.sh hotfix-dsv4-skip-topk-49486.sh hotfix-dsv4-dense-prefill-indexer-48407.sh hotfix-dsv4-skip-empty-c128-48957.sh hotfix-dsv4-flashmla-workspace-50298.sh hotfix-dsv4-grammar-advance.sh; do
+for _hf_sync in hotfix-dsv4-mtp-buffer-50312.sh hotfix-dsv4-adaptive-topk-50004.sh hotfix-dsv4-skip-topk-49486.sh hotfix-dsv4-dense-prefill-indexer-48407.sh hotfix-dsv4-skip-empty-c128-48957.sh hotfix-dsv4-flashmla-workspace-50298.sh hotfix-dsv4-grammar-advance.sh hotfix-dsv4-mq-spin-51950.sh; do
   if [ -f "$SCRIPT_DIR/patches/$_hf_sync" ]; then
     echo "Syncing $_hf_sync to ${WORKER_HOST}:${WORKER_DIR}/patches/"
     ssh "$WORKER_HOST" "mkdir -p '${REMOTE_WORKER_DIR}/patches'"
@@ -641,7 +646,11 @@ fi
 if [ "${DSPARK_SKIP_ISSUE22_HOTFIX:-0}" = "1" ]; then
   echo "Entrypoint will skip Issue #22 hotfix (DSPARK_SKIP_ISSUE22_HOTFIX=1)."
 fi
+if [ "${DSPARK_SKIP_MQ_SPIN_HOTFIX:-0}" = "1" ] && [ "${VLLM_MQ_SPIN_SECONDS:-1}" != "1" ]; then
+  echo "WARNING: DSPARK_SKIP_MQ_SPIN_HOTFIX=1 but VLLM_MQ_SPIN_SECONDS=${VLLM_MQ_SPIN_SECONDS} is set — it will be ignored (hotfix not applied; GB10 thermal relief off)."
+fi
 echo "Issue #22 / v0.27 .sh hotfixes run in the compose entrypoint before vllm (no mid-boot stop)."
+echo "MQ spin-budget (#51950) hotfix also runs there; a failed apply stops the container (no silent unpatched boot)."
 
 echo "Waiting for DSpark vLLM API..."
 print_initial_startup_logs

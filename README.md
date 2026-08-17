@@ -217,12 +217,30 @@ needs a generous `max_tokens` or a budget or thinking won't end. See
 | `DSPARK_SKIP_SUPPRESS_STOPS_HOTFIX` | `0` | `1` = do not apply that patch at all. |
 | `DSPARK_SKIP_ISSUE22_HOTFIX` | `0` | `1` = skip the `nvfp4_ds_mla` long-context decode fix. Don’t, on this recipe. |
 | `DSPARK_SKIP_HOTFIX` | `0` | `1` = skip the six v0.27 perf backports only (#22 still applies). |
+| `VLLM_MQ_SPIN_SECONDS` | `1` | Bound the `SpinCondition` busy-loop (s). `0.002` stops the GB10 P-core spin heat (CPU 333%→89%, SoC −11 °C, perf flat). |
+| `DSPARK_SKIP_MQ_SPIN_HOTFIX` | `0` | `1` = do not install the mq-spin hotfix (the env var is then ignored). |
 | `DSPARK_ISSUE43_SCHED_DIAG` | `0` | `1` = one scheduler line per step in the vLLM log (mixed prefill/decode). |
 | `ENABLE_VLLM_GB10_PATCH` | `0` | `1` = experimental hybrid NVFP4 plugin (`--quantization modelopt_gb10_hybrid`). |
 
 Issue **#21 / #26 / #27 / #43** Python hotfixes always run at container start
 (they are not skipped by `DSPARK_SKIP_HOTFIX`). `#27` + the 1024 prefill cap
 is why six huge cold prompts queue instead of starving decode.
+
+**MQ spin-wait budget (upstream #51950 backport).** On GB10 the CPU and GPU
+share a package, so vLLM's `SpinCondition` wait — which busy-spins for a full
+second before falling back to a blocking notify socket, and never reaches that
+fallback during decode — pins 3-4 performance cores at 100% doing no useful
+work and becomes the dominant heat source (measured: vLLM CPU 333%, SoC
+hot-spot past 90 °C, GPU ~20 °C cooler). `patches/hotfix-dsv4-mq-spin-51950.sh`
+makes that window configurable via `VLLM_MQ_SPIN_SECONDS` **with the default
+unchanged (1s)**, so non-GB10 hosts are unaffected unless they opt in. The
+recipe opts in: `.env.dspark.example` ships `VLLM_MQ_SPIN_SECONDS=0.002`, which
+was measured to drop vLLM CPU 333%→89% and SoC ≈11 °C with throughput and
+first-token latency flat. Apply on both nodes; it runs in the compose entrypoint
+before `exec vllm` and — unlike the perf backports loop — a failed apply stops
+the container instead of silently starting a hot unpatched vLLM
+(`--status`/`--verify` report anchor health). Turn it off with
+`DSPARK_SKIP_MQ_SPIN_HOTFIX=1`; this is independent of `DSPARK_SKIP_HOTFIX`.
 
 ### Stage-C only (no-ops on Anemll `0.1.1`)
 

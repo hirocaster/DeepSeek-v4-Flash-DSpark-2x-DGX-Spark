@@ -138,6 +138,12 @@ if grep -q 'hotfix-dsv4-issue55-tool-truncation.py' docker-compose.dspark.yml \
 else
   bad "compose missing issue #55 tool-call truncation safety"
 fi
+if grep -q 'hotfix-dsv4-mq-spin-51950.sh' docker-compose.dspark.yml \
+  && grep -q 'bash /opt/dspark-patches/hotfix-dsv4-mq-spin-51950.sh' docker-compose.dspark.yml; then
+  ok "compose applies the mq-spin (#51950) busy-loop hotfix"
+else
+  bad "compose missing the mq-spin (#51950) busy-loop hotfix"
+fi
 if grep -q 'restart: ${DSPARK_RESTART_POLICY:-unless-stopped}' docker-compose.dspark.yml; then
   ok "compose restart unless-stopped"
 else
@@ -159,7 +165,8 @@ for p in \
   patches/hotfix-dsv4-issue26-hybrid-swa-min.py \
   patches/hotfix-dsv4-issue27-partial-prefill-concurrency.py \
   patches/hotfix-nvfp4-ds-mla-issue22.sh \
-  patches/hotfix-dsv4-suppress-stops-in-reasoning.py
+  patches/hotfix-dsv4-suppress-stops-in-reasoning.py \
+  patches/hotfix-dsv4-mq-spin-51950.sh
 do
   if [ -f "$p" ]; then
     ok "present $p"

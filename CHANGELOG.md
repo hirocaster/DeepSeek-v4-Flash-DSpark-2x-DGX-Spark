@@ -1,5 +1,23 @@
 ## 2026-08-17
 
+### Changed
+
+- **Bound the shm_broadcast `SpinCondition` busy-loop via `VLLM_MQ_SPIN_SECONDS`
+  (`patches/hotfix-dsv4-mq-spin-51950.sh`, backport of upstream PR #51950)**:
+  on GB10 (CPU + GPU share a package) vLLM's inter-process wait degenerates
+  into a permanent spin — `busy_loop_s` defaults to 1s and decode messages
+  arrive every few ms, so readers never reach the blocking notify path and 3-4
+  performance cores spin at 100% doing no useful work. That was the dominant
+  heat source on this stack (measured: vLLM CPU 333%, SoC hot-spot past 90 °C
+  while the GPU stayed ~20 °C cooler). The hotfix makes the window
+  configurable and **keeps the default 1s** (historical behavior elsewhere);
+  `VLLM_MQ_SPIN_SECONDS=0.002` (option for `.env.dspark`) was measured to drop
+  vLLM CPU 333%→89% and SoC ≈11 °C with throughput and first-token latency
+  flat. Ships with a single `DSPARK_SKIP_MQ_SPIN_HOTFIX` kill-switch,
+  independent of `DSPARK_SKIP_HOTFIX`; the compose entrypoint applies it
+  before `exec vllm` and stops the container loudly on a failed apply (the
+  perf-backport loop hides failures behind `|| true`). Apply on both nodes.
+
 ### Fixed
 
 - **Start script vs `unless-stopped` after reboot ([Issue #72](https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark/issues/72))**: dockerd restores both ranks, then `./start-…` used to `exit 1` on the existing-container guard — the same code as a real failure, which turns a systemd `Restart=on-failure` unit into a retry storm against a serving cluster. If the **head** container is already up, start now **exits 3** with a hint that this is expected after reboot; real failures stay `1`. A leftover **worker** with head down still exits 1 (stale rank after a head-only reboot — rebuild, do not treat as success). Supervisors: `SuccessExitStatus=3` + `RemainAfterExit=yes`, or `DSPARK_RESTART_POLICY=no`. Documented next to `DSPARK_RESTART_POLICY` in `docs/ENVS.md` / `.env.dspark.example`. This is not an adopt/attach path and does not claim the TP group is healthy.
